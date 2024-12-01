@@ -3,8 +3,11 @@ function Get-FolderSize {
         [string]$folder
     )
     $size = 0
-    Get-ChildItem -Path $folder -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {
-        if (-not $_.PSIsContainer) {
+    # Recurso -Recurse não está garantido no PowerShell 2.0, então usamos um loop manual.
+    Get-ChildItem -Path $folder -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.PSIsContainer) {
+            $size += Get-FolderSize -folder $_.FullName
+        } else {
             $size += $_.Length
         }
     }
@@ -20,15 +23,17 @@ function Get-TopFoldersBySize {
     Get-ChildItem -Path $drive -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
         $folderPath = $_.FullName
         try {
-            $acl = Get-Acl -Path $folderPath
             $folderSize = Get-FolderSize -folder $folderPath
-            $folderSizes += [PSCustomObject]@{Folder=$folderPath; Size=$folderSize}
+            $folderSizes += New-Object PSObject -Property @{
+                Folder = $folderPath
+                Size   = $folderSize
+            }
         } catch {
             Write-Output ("No access to folder: {0}" -f $folderPath)
         }
     }
     $folderSizes = $folderSizes | Sort-Object -Property Size -Descending
-    return $folderSizes[0..($topN-1)]
+    return $folderSizes[0..([Math]::Min($topN, $folderSizes.Count - 1))]
 }
 
 function Get-TopSubfoldersBySize {
@@ -40,28 +45,35 @@ function Get-TopSubfoldersBySize {
     Get-ChildItem -Path $folder -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
         $subfolderPath = $_.FullName
         try {
-            $acl = Get-Acl -Path $subfolderPath
             $subfolderSize = Get-FolderSize -folder $subfolderPath
-            $subfolderSizes += [PSCustomObject]@{Folder=$subfolderPath; Size=$subfolderSize}
+            $subfolderSizes += New-Object PSObject -Property @{
+                Folder = $subfolderPath
+                Size   = $subfolderSize
+            }
         } catch {
             Write-Output ("No access to subfolder: {0}" -f $subfolderPath)
         }
     }
     $subfolderSizes = $subfolderSizes | Sort-Object -Property Size -Descending
-    return $subfolderSizes[0..($topN-1)]
+    return $subfolderSizes[0..([Math]::Min($topN, $subfolderSizes.Count - 1))]
 }
 
 # Defina o drive a ser verificado
 $drive = 'C:\'
 
+# Top 10 pastas no drive
 $topFolders = Get-TopFoldersBySize -drive $drive
 
-$top5Folders = $topFolders[0..4]
+# Selecionar as 5 maiores pastas
+$top5Folders = $topFolders[0..([Math]::Min(4, $topFolders.Count - 1))]
 
+# Caminho do desktop
 $desktopPath = [System.Environment]::GetFolderPath('Desktop')
 
+# Caminho do arquivo de saída
 $outputFilePath = Join-Path -Path $desktopPath -ChildPath 'C_drive_scan_results.txt'
 
+# Gravar resultados no arquivo
 $outputFile = New-Object System.IO.StreamWriter($outputFilePath)
 
 $outputFile.WriteLine("Top 10 folders by size:")
