@@ -1,0 +1,83 @@
+function Get-FolderSize {
+    param (
+        [string]$folder
+    )
+    $size = 0
+    Get-ChildItem -Path $folder -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        if (-not $_.PSIsContainer) {
+            $size += $_.Length
+        }
+    }
+    return $size
+}
+
+function Get-TopFoldersBySize {
+    param (
+        [string]$drive,
+        [int]$topN = 10
+    )
+    $folderSizes = @()
+    Get-ChildItem -Path $drive -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        $folderPath = $_.FullName
+        try {
+            $acl = Get-Acl -Path $folderPath
+            $folderSize = Get-FolderSize -folder $folderPath
+            $folderSizes += [PSCustomObject]@{Folder=$folderPath; Size=$folderSize}
+        } catch {
+            Write-Output ("No access to folder: {0}" -f $folderPath)
+        }
+    }
+    $folderSizes = $folderSizes | Sort-Object -Property Size -Descending
+    return $folderSizes[0..($topN-1)]
+}
+
+function Get-TopSubfoldersBySize {
+    param (
+        [string]$folder,
+        [int]$topN = 10
+    )
+    $subfolderSizes = @()
+    Get-ChildItem -Path $folder -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        $subfolderPath = $_.FullName
+        try {
+            $acl = Get-Acl -Path $subfolderPath
+            $subfolderSize = Get-FolderSize -folder $subfolderPath
+            $subfolderSizes += [PSCustomObject]@{Folder=$subfolderPath; Size=$subfolderSize}
+        } catch {
+            Write-Output ("No access to subfolder: {0}" -f $subfolderPath)
+        }
+    }
+    $subfolderSizes = $subfolderSizes | Sort-Object -Property Size -Descending
+    return $subfolderSizes[0..($topN-1)]
+}
+
+# Defina o drive a ser verificado
+$drive = 'C:\'
+
+$topFolders = Get-TopFoldersBySize -drive $drive
+
+$top5Folders = $topFolders[0..4]
+
+$desktopPath = [System.Environment]::GetFolderPath('Desktop')
+
+$outputFilePath = Join-Path -Path $desktopPath -ChildPath 'C_drive_scan_results.txt'
+
+$outputFile = New-Object System.IO.StreamWriter($outputFilePath)
+
+$outputFile.WriteLine("Top 10 folders by size:")
+$topFolders | ForEach-Object {
+    $outputFile.WriteLine(("Folder: {0}, Size: {1:N2} GB" -f $_.Folder, ($_.Size / 1GB)))
+}
+
+$top5Folders | ForEach-Object {
+    $folderPath = $_.Folder
+    $outputFile.WriteLine(("`nTop 10 subfolders by size in {0}:" -f $folderPath))
+    $topSubfolders = Get-TopSubfoldersBySize -folder $folderPath
+    $topSubfolders | ForEach-Object {
+        $outputFile.WriteLine(("Subfolder: {0}, Size: {1:N2} GB" -f $_.Folder, ($_.Size / 1GB)))
+    }
+}
+
+$outputFile.Close()
+
+Write-Output ("Results have been saved to {0}" -f $outputFilePath)
